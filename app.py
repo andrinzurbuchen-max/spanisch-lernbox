@@ -57,31 +57,34 @@ if "vocab_loaded" not in st.session_state:
     st.session_state.vocab_loaded = True
 # ====================== HILFSFUNKTIONEN ======================
 def translate_word(word: str):
-    """Holt korrigierte Schreibweise + Übersetzung + Alternativen von OpenAI"""
+    """Erkennt Sprache, korrigiert und übersetzt in die andere Sprache"""
     
     prompt = f"""
-Du bist ein erfahrener Spanisch-Lehrer für Deutschsprachige.
+Du bist ein erfahrener Spanisch- und Deutsch-Lehrer.
 
 Das eingegebene Wort/Ausdruck ist: "{word}"
 
-Aufgabe:
-1. Prüfe, ob das Wort richtig geschrieben ist. Falls es falsch geschrieben ist, korrigiere es.
-2. Gib die beste deutsche Übersetzung und Alternativen.
+Deine Aufgaben:
+1. Erkenne, ob das Wort auf Spanisch oder auf Deutsch ist.
+2. Korrigiere Tippfehler, falls vorhanden.
+3. Übersetze es in die jeweils andere Sprache.
+4. Gib gute Alternativen und Beispielsätze.
 
 Antworte **ausschließlich** mit einem gültigen JSON in diesem Format:
 
 {{
-  "corrected": "die korrekt geschriebene spanische Version",
+  "detected_language": "spanish" oder "german",
+  "corrected": "die korrekt geschriebene Version in der Originalsprache",
   "was_corrected": true/false,
-  "main": "die natürlichste und häufigste deutsche Übersetzung",
+  "translation": "die beste Übersetzung in die andere Sprache",
   "alternatives": [
-    {{"translation": "Alternative 1", "note": "kurze Erklärung wann man das benutzt"}},
+    {{"translation": "Alternative 1", "note": "kurze Erklärung"}},
     {{"translation": "Alternative 2", "note": "kurze Erklärung"}},
     {{"translation": "Alternative 3", "note": "kurze Erklärung"}}
   ],
   "examples": [
-    {{"es": "Beispielsatz auf Spanisch", "de": "Deutsche Übersetzung"}},
-    {{"es": "Zweiter Beispielsatz", "de": "Deutsche Übersetzung"}}
+    {{"original": "Beispielsatz in der Originalsprache", "translated": "Übersetzung"}},
+    {{"original": "Zweiter Beispielsatz", "translated": "Übersetzung"}}
   ]
 }}
 """
@@ -156,47 +159,63 @@ with tab1:
                 st.error(f"Fehler bei der Übersetzung: {e}")
                 st.session_state.translation_result = None
 
-    # Ergebnis anzeigen
+        # Ergebnis anzeigen
     if st.session_state.translation_result:
         data = st.session_state.translation_result["data"]
         original = st.session_state.translation_result["original"]
         
         st.divider()
         
-        # Zeige Korrektur an, falls nötig
-        if data.get("was_corrected"):
-            st.warning(f"Du hast „{original}“ geschrieben. Gemeint war wahrscheinlich: **{data['corrected']}**")
-            display_word = data["corrected"]
-        else:
-            display_word = original
-            st.markdown(f"### Ergebnis für: **{display_word}**")
+        # Sprache und Korrektur anzeigen
+        lang = data.get("detected_language", "spanish")
+        corrected = data.get("corrected", original)
         
-        st.success(f"**Hauptübersetzung:** {data['main']}")
+        if data.get("was_corrected"):
+            st.warning(f"Du hast „{original}“ geschrieben. Gemeint war: **{corrected}**")
+        
+        if lang == "spanish":
+            st.markdown(f"### Spanisch: **{corrected}**")
+            st.success(f"**Deutsch:** {data['translation']}")
+            spanish_word = corrected
+            german_word = data["translation"]
+        else:
+            st.markdown(f"### Deutsch: **{corrected}**")
+            st.success(f"**Spanisch:** {data['translation']}")
+            spanish_word = data["translation"]
+            german_word = corrected
         
         st.markdown("**Alternativen:**")
         for alt in data.get("alternatives", []):
-            st.markdown(f"- **{alt['translation']}** — {alt['note']}")
+            st.markdown(f"- **{alt['translation']}** — {alt.get('note', '')}")
         
         with st.expander("Beispielsätze anzeigen"):
             for ex in data.get("examples", []):
-                st.markdown(f"- *{ex['es']}*  \n  → {ex['de']}")
+                st.markdown(f"- *{ex.get('original', '')}*  \n  → {ex.get('translated', '')}")
         
         st.divider()
         st.markdown("### In die Lernbox speichern")
         
-        options = [data["main"]] + [a["translation"] for a in data.get("alternatives", [])]
+        # Auswahl der Übersetzung (falls Alternativen gewählt werden sollen)
+        options = [data["translation"]] + [a["translation"] for a in data.get("alternatives", [])]
         
         selected = st.radio(
-            "Welche Übersetzung soll in die Lernbox?",
+            "Welche Übersetzung soll gespeichert werden?",
             options=options,
             index=0
         )
         
         if st.button("In Lernbox speichern", type="primary"):
-            # Immer die korrigierte Version speichern
-            success = add_to_vocab(data["corrected"], selected)
+            # Richtig zuordnen je nach erkannter Sprache
+            if lang == "spanish":
+                final_spanish = corrected
+                final_german = selected
+            else:
+                final_spanish = selected
+                final_german = corrected
+            
+            success = add_to_vocab(final_spanish, final_german)
             if success:
-                st.success(f"„{data['corrected']} → {selected}“ wurde gespeichert!")
+                st.success(f"Gespeichert: **{final_spanish}** → **{final_german}**")
                 st.session_state.translation_result = None
                 st.rerun()
             else:
