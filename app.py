@@ -57,15 +57,22 @@ if "vocab_loaded" not in st.session_state:
     st.session_state.vocab_loaded = True
 # ====================== HILFSFUNKTIONEN ======================
 def translate_word(word: str):
-    """Holt Übersetzung + Alternativen von OpenAI"""
+    """Holt korrigierte Schreibweise + Übersetzung + Alternativen von OpenAI"""
     
     prompt = f"""
 Du bist ein erfahrener Spanisch-Lehrer für Deutschsprachige.
-Das spanische Wort oder der Ausdruck ist: "{word}"
+
+Das eingegebene Wort/Ausdruck ist: "{word}"
+
+Aufgabe:
+1. Prüfe, ob das Wort richtig geschrieben ist. Falls es falsch geschrieben ist, korrigiere es.
+2. Gib die beste deutsche Übersetzung und Alternativen.
 
 Antworte **ausschließlich** mit einem gültigen JSON in diesem Format:
 
 {{
+  "corrected": "die korrekt geschriebene spanische Version",
+  "was_corrected": true/false,
   "main": "die natürlichste und häufigste deutsche Übersetzung",
   "alternatives": [
     {{"translation": "Alternative 1", "note": "kurze Erklärung wann man das benutzt"}},
@@ -80,13 +87,13 @@ Antworte **ausschließlich** mit einem gültigen JSON in diesem Format:
 """
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",          # günstig und gut genug
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": "Du antwortest immer nur mit validem JSON."},
             {"role": "user", "content": prompt}
         ],
         response_format={"type": "json_object"},
-        temperature=0.3
+        temperature=0.2
     )
     
     return json.loads(response.choices[0].message.content)
@@ -155,7 +162,14 @@ with tab1:
         original = st.session_state.translation_result["original"]
         
         st.divider()
-        st.markdown(f"### Ergebnis für: **{original}**")
+        
+        # Zeige Korrektur an, falls nötig
+        if data.get("was_corrected"):
+            st.warning(f"Du hast „{original}“ geschrieben. Gemeint war wahrscheinlich: **{data['corrected']}**")
+            display_word = data["corrected"]
+        else:
+            display_word = original
+            st.markdown(f"### Ergebnis für: **{display_word}**")
         
         st.success(f"**Hauptübersetzung:** {data['main']}")
         
@@ -170,7 +184,6 @@ with tab1:
         st.divider()
         st.markdown("### In die Lernbox speichern")
         
-        # Auswahlmöglichkeiten zusammenbauen
         options = [data["main"]] + [a["translation"] for a in data.get("alternatives", [])]
         
         selected = st.radio(
@@ -180,10 +193,11 @@ with tab1:
         )
         
         if st.button("In Lernbox speichern", type="primary"):
-            success = add_to_vocab(original, selected)
+            # Immer die korrigierte Version speichern
+            success = add_to_vocab(data["corrected"], selected)
             if success:
-                st.success(f"„{original} → {selected}“ wurde gespeichert!")
-                st.session_state.translation_result = None   # zurücksetzen
+                st.success(f"„{data['corrected']} → {selected}“ wurde gespeichert!")
+                st.session_state.translation_result = None
                 st.rerun()
             else:
                 st.warning("Dieses Wort ist bereits in der Lernbox.")
